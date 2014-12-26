@@ -100,6 +100,9 @@ namespace OIS
 		bool grabMouse, grabKeyboard;
 		bool mGrabs;
 		bool hideMouse;
+
+		//! By default, keyboard disables XRepeatRate
+		bool useXRepeat;
 	};
 }
 #endif

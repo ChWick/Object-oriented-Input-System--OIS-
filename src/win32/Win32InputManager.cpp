@@ -61,15 +61,13 @@ void Win32InputManager::_initialize( ParamList &paramList )
 	HINSTANCE hInst = 0;
 	HRESULT hr;
 
-
+	//TODO 64 bit proof this little conversion xxx wip
 	//First of all, get the Windows Handle and Instance
 	ParamList::iterator i = paramList.find("WINDOW");
 	if( i == paramList.end() ) 
 		OIS_EXCEPT( E_InvalidParam, "Win32InputManager::Win32InputManager >> No HWND found!" );
 
-	// Get number as 64 bit and then convert. Handles the case of 32 or 64 bit HWND
-	unsigned __int64 handle = _strtoui64(i->second.c_str(), 0, 10);
-	hWnd  = (HWND)handle;
+	hWnd  = (HWND)strtoul(i->second.c_str(), 0, 10);
 
 	if( IsWindow(hWnd) == 0 )
 		OIS_EXCEPT( E_General, "Win32InputManager::Win32InputManager >> The sent HWND is not valid!");
@@ -121,7 +119,7 @@ void Win32InputManager::_enumerateDevices()
 	//Enumerate all attached devices
 	mDirectInput->EnumDevices(NULL, _DIEnumDevCallback, this, DIEDFL_ATTACHEDONLY);
 
-#ifdef OIS_WIN32_XINPUT_SUPPORT
+	int xinputControllers = 0;
 	//let's check how many possible XInput devices we may have (max 4)... 
 	for(int i = 0; i < 3; ++i)
 	{
@@ -132,7 +130,6 @@ void Win32InputManager::_enumerateDevices()
 			break;
 		}
 	}
-#endif
 }
 
 //--------------------------------------------------------------------------------//
@@ -145,8 +142,7 @@ BOOL CALLBACK Win32InputManager::_DIEnumDevCallback(LPCDIDEVICEINSTANCE lpddi, L
 		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_GAMEPAD ||
 		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_1STPERSON ||
 		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_DRIVING ||
-		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_FLIGHT ||
-		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_SUPPLEMENTAL)
+		GET_DIDEVICE_TYPE(lpddi->dwDevType) == DI8DEVTYPE_FLIGHT)
 	{
 		JoyStickInfo jsInfo;
 		jsInfo.isXInput = false;

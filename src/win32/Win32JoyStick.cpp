@@ -20,6 +20,8 @@ restrictions:
 
     3. This notice may not be removed or altered from any source distribution.
 */
+
+#define _WIN32_DCOM //otherwise CoSetProxyBlanket is not defined in Visual Studio 2005
 #include "win32/Win32JoyStick.h"
 #include "win32/Win32InputManager.h"
 #include "win32/Win32ForceFeedback.h"
@@ -27,9 +29,6 @@ restrictions:
 #include "OISException.h"
 
 #include <cassert>
-
-// Only if xinput support is enabled
-#ifdef OIS_WIN32_XINPUT_SUPPORT
 #include <wbemidl.h>
 #include <oleauto.h>
 //#include <wmsstd.h>
@@ -42,8 +41,6 @@ restrictions:
    }
 #endif
 
-#pragma comment(lib, "xinput.lib")
-#endif
 
 //DX Only defines macros for the JOYSTICK not JOYSTICK2, so fix it
 #undef DIJOFS_BUTTON
@@ -248,252 +245,272 @@ BOOL CALLBACK Win32JoyStick::DIEnumEffectsCallback(LPCDIEFFECTINFO pdei, LPVOID 
 //--------------------------------------------------------------------------------------------------//
 void Win32JoyStick::capture()
 {
-#ifdef OIS_WIN32_XINPUT_SUPPORT
-	//handle xbox controller differently
     if (mJoyInfo.isXInput)
+    {
+        XINPUT_STATE inputState;
+		if (XInputGetState((DWORD)mJoyInfo.xInputDev, &inputState) != ERROR_SUCCESS)
+            memset(&inputState, 0, sizeof(inputState));
+
+        //Sticks and triggers
+        bool axisMoved[XINPUT_TRANSLATED_AXIS_COUNT] = {false,false,false,false,false,false};
+        if (std::abs(inputState.Gamepad.sThumbLY) > XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE)
+        {
+            int value = -(int)inputState.Gamepad.sThumbLY;
+            mState.mAxes[0].rel = value - mState.mAxes[0].abs;
+            mState.mAxes[0].abs = value;
+            axisMoved[0] = mState.mAxes[0].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[0].rel = 0;
+            mState.mAxes[0].abs = 0;
+        }
+
+        if (std::abs(inputState.Gamepad.sThumbLX) > XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE)
+        {
+            mState.mAxes[1].rel = inputState.Gamepad.sThumbLX - mState.mAxes[1].abs;
+            mState.mAxes[1].abs = inputState.Gamepad.sThumbLX;
+            axisMoved[1] = mState.mAxes[1].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[1].rel = 0;
+            mState.mAxes[1].abs = 0;
+        }
+
+        if (std::abs(inputState.Gamepad.sThumbRY) > XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE)
+        {
+            int value = -(int)inputState.Gamepad.sThumbRY;
+            mState.mAxes[2].rel = value - mState.mAxes[2].abs;
+            mState.mAxes[2].abs = value;
+            axisMoved[2] = mState.mAxes[2].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[2].rel = 0;
+            mState.mAxes[2].abs = 0;
+        }
+
+        if (std::abs(inputState.Gamepad.sThumbRX) > XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE)
+        {
+            mState.mAxes[3].rel = inputState.Gamepad.sThumbRX - mState.mAxes[3].abs;
+            mState.mAxes[3].abs = inputState.Gamepad.sThumbRX;
+            axisMoved[3] = mState.mAxes[3].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[3].rel = 0;
+            mState.mAxes[3].abs = 0;
+        }
+
+        if (inputState.Gamepad.bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+        {
+            int value = (int)inputState.Gamepad.bLeftTrigger * 128;
+            if (value > 0)
+                value = std::min(value + 128, 32767);
+            mState.mAxes[4].rel = value - mState.mAxes[4].abs;
+            mState.mAxes[4].abs = value;
+            axisMoved[4] = mState.mAxes[4].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[4].rel = 0;
+            mState.mAxes[4].abs = 0;
+        }
+
+        if (inputState.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+        {
+            int value = (int)inputState.Gamepad.bRightTrigger * 128;
+            if (value > 0)
+                value = std::min(value + 128, 32767);
+            mState.mAxes[5].rel = value - mState.mAxes[5].abs;
+            mState.mAxes[5].abs = value;
+            axisMoved[5] = mState.mAxes[5].rel != 0;
+        }
+        else
+        {
+            mState.mAxes[5].rel = 0;
+            mState.mAxes[5].abs = 0;
+        }
+        
+        //POV
+        int previousPov = mState.mPOV[0].direction;        
+        int& pov = mState.mPOV[0].direction;
+        pov = Pov::Centered;        
+        if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP)
+            pov |= Pov::North;
+        else if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN)
+            pov |= Pov::South;
+        if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT)
+            pov |= Pov::West;
+        else if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT)
+            pov |= Pov::East;
+        
+        //Buttons - The first 4 buttons don't need to be checked since they represent the dpad
+        bool previousButtons[XINPUT_TRANSLATED_BUTTON_COUNT];
+        std::copy(mState.mButtons.begin(), mState.mButtons.end(), previousButtons);
+        for (size_t i = 0; i < XINPUT_TRANSLATED_BUTTON_COUNT; i++)
+            mState.mButtons[i] = (inputState.Gamepad.wButtons & (1 << (i + 4))) != 0;
+
+        //Send events
+	    if (mBuffered && mListener)
+	    {
+		    JoyStickEvent joystickEvent(this, mState);
+
+		    //Axes
+		    for (int i = 0; i < XINPUT_TRANSLATED_AXIS_COUNT; i++)
+            {
+			    if (axisMoved[i] && !mListener->axisMoved(joystickEvent, i))
+				    return;
+            }
+
+            //POV
+            if (previousPov != pov && !mListener->povMoved(joystickEvent, 0))
+                return;
+
+            //Buttons
+            for (int i = 0; i < XINPUT_TRANSLATED_BUTTON_COUNT; i++)
+            {
+                if (!previousButtons[i] && mState.mButtons[i])
+                {
+                    if (!mListener->buttonPressed(joystickEvent, i))
+                        return;
+                }
+                else if (previousButtons[i] && !mState.mButtons[i])
+                {
+                    if (!mListener->buttonReleased(joystickEvent, i))
+                        return;
+                }
+            }
+	    }
+    }
+	else
 	{
-		captureXInput();
-		return;
-	}
-#endif
-
-	//handle directinput based devices
-	DIDEVICEOBJECTDATA diBuff[JOYSTICK_DX_BUFFERSIZE];
-	DWORD entries = JOYSTICK_DX_BUFFERSIZE;
-
-	// Poll the device to read the current state
-	HRESULT hr = mJoyStick->Poll();
-	if( hr == DI_OK )
-		hr = mJoyStick->GetDeviceData( sizeof(DIDEVICEOBJECTDATA), diBuff, &entries, 0 );
-
-	if( hr != DI_OK )
-	{
-		hr = mJoyStick->Acquire();
-		while( hr == DIERR_INPUTLOST )
-			hr = mJoyStick->Acquire();
+		DIDEVICEOBJECTDATA diBuff[JOYSTICK_DX_BUFFERSIZE];
+		DWORD entries = JOYSTICK_DX_BUFFERSIZE;
 
 		// Poll the device to read the current state
-		mJoyStick->Poll();
-		hr = mJoyStick->GetDeviceData( sizeof(DIDEVICEOBJECTDATA), diBuff, &entries, 0 );
-		//Perhaps the user just tabbed away
-		if( FAILED(hr) )
-			return;
-	}
+		HRESULT hr = mJoyStick->Poll();
+		if( hr == DI_OK )
+			hr = mJoyStick->GetDeviceData( sizeof(DIDEVICEOBJECTDATA), diBuff, &entries, 0 );
 
-	bool axisMoved[24] = {false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
-						  false,false,false,false,false,false,false,false};
-	bool sliderMoved[4] = {false,false,false,false};
-
-	//Loop through all the events
-	for(unsigned int i = 0; i < entries; ++i)
-	{
-		//This may seem outof order, but is in order of the way these variables
-		//are declared in the JoyStick State 2 structure.
-		switch(diBuff[i].dwOfs)
+		if( hr != DI_OK )
 		{
-		//------ slider -//
-		case DIJOFS_SLIDER0(0):
-			sliderMoved[0] = true;
-			mState.mSliders[0].abX = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER0(1):
-			sliderMoved[0] = true;
-			mState.mSliders[0].abY = diBuff[i].dwData;
-			break;
-		//----- Max 4 POVs Next ---------------//
-		case DIJOFS_POV(0):
-			if(!_changePOV(0,diBuff[i]))
+			hr = mJoyStick->Acquire();
+			while( hr == DIERR_INPUTLOST )
+				hr = mJoyStick->Acquire();
+
+			// Poll the device to read the current state
+			mJoyStick->Poll();
+			hr = mJoyStick->GetDeviceData( sizeof(DIDEVICEOBJECTDATA), diBuff, &entries, 0 );
+			//Perhaps the user just tabbed away
+			if( FAILED(hr) )
 				return;
-			break;
-		case DIJOFS_POV(1):
-			if(!_changePOV(1,diBuff[i]))
-				return;
-			break;
-		case DIJOFS_POV(2):
-			if(!_changePOV(2,diBuff[i]))
-				return;
-			break;
-		case DIJOFS_POV(3):
-			if(!_changePOV(3,diBuff[i]))
-				return;
-			break;
-		case DIJOFS_SLIDER1(0):
-			sliderMoved[1] = true;
-			mState.mSliders[1].abX = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER1(1):
-			sliderMoved[1] = true;
-			mState.mSliders[1].abY = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER2(0):
-			sliderMoved[2] = true;
-			mState.mSliders[2].abX = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER2(1):
-			sliderMoved[2] = true;
-			mState.mSliders[2].abY = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER3(0):
-			sliderMoved[3] = true;
-			mState.mSliders[3].abX = diBuff[i].dwData;
-			break;
-		case DIJOFS_SLIDER3(1):
-			sliderMoved[3] = true;
-			mState.mSliders[3].abY = diBuff[i].dwData;
-			break;
-		//-----------------------------------------//
-		default:
-			//Handle Button Events Easily using the DX Offset Macros
-			if( diBuff[i].dwOfs >= DIJOFS_BUTTON(0) && diBuff[i].dwOfs < DIJOFS_BUTTON(128) )
+		}
+
+		bool axisMoved[24] = {false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+							  false,false,false,false,false,false,false,false};
+		bool sliderMoved[4] = {false,false,false,false};
+
+		//Loop through all the events
+		for(unsigned int i = 0; i < entries; ++i)
+		{
+			//This may seem outof order, but is in order of the way these variables
+			//are declared in the JoyStick State 2 structure.
+			switch(diBuff[i].dwOfs)
 			{
-				if(!_doButtonClick((diBuff[i].dwOfs - DIJOFS_BUTTON(0)), diBuff[i]))
+			//------ slider -//
+			case DIJOFS_SLIDER0(0):
+				sliderMoved[0] = true;
+				mState.mSliders[0].abX = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER0(1):
+				sliderMoved[0] = true;
+				mState.mSliders[0].abY = diBuff[i].dwData;
+				break;
+			//----- Max 4 POVs Next ---------------//
+			case DIJOFS_POV(0):
+				if(!_changePOV(0,diBuff[i]))
 					return;
-			}
-			else if((short)(diBuff[i].uAppData >> 16) == 0x1313)
-			{	//If it was nothing else, might be axis enumerated earlier (determined by magic number)
-				int axis = (int)(0x0000FFFF & diBuff[i].uAppData); //Mask out the high bit
-				assert( axis >= 0 && axis < (int)mState.mAxes.size() && "Axis out of range!");
-
-				if(axis >= 0 && axis < (int)mState.mAxes.size())
+				break;
+			case DIJOFS_POV(1):
+				if(!_changePOV(1,diBuff[i]))
+					return;
+				break;
+			case DIJOFS_POV(2):
+				if(!_changePOV(2,diBuff[i]))
+					return;
+				break;
+			case DIJOFS_POV(3):
+				if(!_changePOV(3,diBuff[i]))
+					return;
+				break;
+			case DIJOFS_SLIDER1(0):
+				sliderMoved[1] = true;
+				mState.mSliders[1].abX = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER1(1):
+				sliderMoved[1] = true;
+				mState.mSliders[1].abY = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER2(0):
+				sliderMoved[2] = true;
+				mState.mSliders[2].abX = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER2(1):
+				sliderMoved[2] = true;
+				mState.mSliders[2].abY = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER3(0):
+				sliderMoved[3] = true;
+				mState.mSliders[3].abX = diBuff[i].dwData;
+				break;
+			case DIJOFS_SLIDER3(1):
+				sliderMoved[3] = true;
+				mState.mSliders[3].abY = diBuff[i].dwData;
+				break;
+			//-----------------------------------------//
+			default:
+				//Handle Button Events Easily using the DX Offset Macros
+				if( diBuff[i].dwOfs >= DIJOFS_BUTTON(0) && diBuff[i].dwOfs < DIJOFS_BUTTON(128) )
 				{
-					mState.mAxes[axis].abs = diBuff[i].dwData;
-					axisMoved[axis] = true;
+					if(!_doButtonClick((diBuff[i].dwOfs - DIJOFS_BUTTON(0)), diBuff[i]))
+						return;
 				}
-			}
+				else if((short)(diBuff[i].uAppData >> 16) == 0x1313)
+				{	//If it was nothing else, might be axis enumerated earlier (determined by magic number)
+					int axis = (int)(0x0000FFFF & diBuff[i].uAppData); //Mask out the high bit
+					assert( axis >= 0 && axis < (int)mState.mAxes.size() && "Axis out of range!");
 
-			break;
-		} //end case
-	} //end for
+					if(axis >= 0 && axis < (int)mState.mAxes.size())
+					{
+						mState.mAxes[axis].abs = diBuff[i].dwData;
+						axisMoved[axis] = true;
+					}
+				}
 
-	//Check to see if any of the axes values have changed.. if so send events
-	if( mBuffered && mListener && entries > 0 )
-	{
-		JoyStickEvent temp(this, mState);
+				break;
+			} //end case
+		} //end for
 
-		//Update axes
-		for( int i = 0; i < 24; ++i )
-			if( axisMoved[i] )
-				if( mListener->axisMoved( temp, i ) == false )
-					return;
+		//Check to see if any of the axes values have changed.. if so send events
+		if( mBuffered && mListener && entries > 0 )
+		{
+			JoyStickEvent temp(this, mState);
 
-		//Now update sliders
-		for( int i = 0; i < 4; ++i )
-			if( sliderMoved[i] )
-				if( mListener->sliderMoved( temp, i ) == false )
-					return;
+			//Update axes
+			for( int i = 0; i < 24; ++i )
+				if( axisMoved[i] )
+					if( mListener->axisMoved( temp, i ) == false )
+						return;
+
+			//Now update sliders
+			for( int i = 0; i < 4; ++i )
+				if( sliderMoved[i] )
+					if( mListener->sliderMoved( temp, i ) == false )
+						return;
+		}
 	}
-}
-
-//--------------------------------------------------------------------------------------------------//
-void Win32JoyStick::captureXInput()
-{
-#ifdef OIS_WIN32_XINPUT_SUPPORT
-    XINPUT_STATE inputState;
-	if (XInputGetState((DWORD)mJoyInfo.xInputDev, &inputState) != ERROR_SUCCESS)
-        memset(&inputState, 0, sizeof(inputState));
-
-    //Sticks and triggers
-	int value;
-    bool axisMoved[XINPUT_TRANSLATED_AXIS_COUNT] = {false,false,false,false,false,false};
-
-	//LeftY
-	value = -(int)inputState.Gamepad.sThumbLY;
-	mState.mAxes[0].rel = value - mState.mAxes[0].abs;
-	mState.mAxes[0].abs = value;
-	if(mState.mAxes[0].rel != 0)
-        axisMoved[0] = true;
-
-	//LeftX
-    mState.mAxes[1].rel = inputState.Gamepad.sThumbLX - mState.mAxes[1].abs;
-    mState.mAxes[1].abs = inputState.Gamepad.sThumbLX;
-
-	if(mState.mAxes[1].rel != 0)
-        axisMoved[1] = true;
-
-	//RightY
-	value = -(int)inputState.Gamepad.sThumbRY;           
-    mState.mAxes[2].rel = value - mState.mAxes[2].abs;
-    mState.mAxes[2].abs = value;
-	if(mState.mAxes[2].rel != 0)
-        axisMoved[2] = true;
-
-	//RightX
-    mState.mAxes[3].rel = inputState.Gamepad.sThumbRX - mState.mAxes[3].abs;
-    mState.mAxes[3].abs = inputState.Gamepad.sThumbRX;
-	if(mState.mAxes[3].rel != 0)
-		axisMoved[3] = true;
-
-	//Left trigger
-    value = inputState.Gamepad.bLeftTrigger * 129;
-	if(value > JoyStick::MAX_AXIS)
-		value = JoyStick::MAX_AXIS;
-
-    mState.mAxes[4].rel = value - mState.mAxes[4].abs;
-    mState.mAxes[4].abs = value;
-	if(mState.mAxes[4].rel != 0)
-		axisMoved[4] = true;
-
-	//Right trigger
-    value = (int)inputState.Gamepad.bRightTrigger * 129;
-	if(value > JoyStick::MAX_AXIS)
-		value = JoyStick::MAX_AXIS;
-
-	mState.mAxes[5].rel = value - mState.mAxes[5].abs;
-    mState.mAxes[5].abs = value;
-	if(mState.mAxes[5].rel != 0)
-		axisMoved[5] = true;
-    
-    //POV
-    int previousPov = mState.mPOV[0].direction;        
-    int& pov = mState.mPOV[0].direction;
-    pov = Pov::Centered;        
-    if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP)
-        pov |= Pov::North;
-    else if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN)
-        pov |= Pov::South;
-    if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT)
-        pov |= Pov::West;
-    else if (inputState.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT)
-        pov |= Pov::East;
-    
-    //Buttons - The first 4 buttons don't need to be checked since they represent the dpad
-    bool previousButtons[XINPUT_TRANSLATED_BUTTON_COUNT];
-    std::copy(mState.mButtons.begin(), mState.mButtons.end(), previousButtons);
-    for (size_t i = 0; i < XINPUT_TRANSLATED_BUTTON_COUNT; i++)
-        mState.mButtons[i] = (inputState.Gamepad.wButtons & (1 << (i + 4))) != 0;
-
-    //Send events
-    if (mBuffered && mListener)
-    {
-	    JoyStickEvent joystickEvent(this, mState);
-
-	    //Axes
-	    for (int i = 0; i < XINPUT_TRANSLATED_AXIS_COUNT; i++)
-        {
-		    if (axisMoved[i] && !mListener->axisMoved(joystickEvent, i))
-			    return;
-        }
-
-        //POV
-        if (previousPov != pov && !mListener->povMoved(joystickEvent, 0))
-            return;
-
-        //Buttons
-        for (int i = 0; i < XINPUT_TRANSLATED_BUTTON_COUNT; i++)
-        {
-            if (!previousButtons[i] && mState.mButtons[i])
-            {
-                if (!mListener->buttonPressed(joystickEvent, i))
-                    return;
-            }
-            else if (previousButtons[i] && !mState.mButtons[i])
-            {
-                if (!mListener->buttonReleased(joystickEvent, i))
-                    return;
-            }
-        }
-    }
-#endif
 }
 
 //--------------------------------------------------------------------------------------------------//
@@ -518,7 +535,7 @@ bool Win32JoyStick::_doButtonClick( int button, DIDEVICEOBJECTDATA& di )
 //--------------------------------------------------------------------------------------------------//
 bool Win32JoyStick::_changePOV( int pov, DIDEVICEOBJECTDATA& di )
 {
-	//Some drivers report a value of 65,535, instead of —1,
+	//Some drivers report a value of 65,535, instead of E,
 	//for the center position
 	if(LOWORD(di.dwData) == 0xFFFF)
 	{
@@ -561,7 +578,6 @@ Interface* Win32JoyStick::queryInterface(Interface::IType type)
 }
 
 //--------------------------------------------------------------------------------------------------//
-#ifdef OIS_WIN32_XINPUT_SUPPORT
 void Win32JoyStick::CheckXInputDevices(JoyStickInfoList &joys)
 {
     IWbemLocator*           pIWbemLocator  = NULL;
@@ -648,11 +664,10 @@ void Win32JoyStick::CheckXInputDevices(JoyStickInfoList &joys)
                     DWORD dwVidPid = MAKELONG(dwVid, dwPid);
 					for(JoyStickInfoList::iterator i = joys.begin(); i != joys.end(); ++i)
 					{
-						if(!i->isXInput && dwVidPid == i->productGuid.Data1)
+						if(dwVidPid == i->productGuid.Data1)
 						{
 							i->isXInput = true;
 							i->xInputDev = xDevice;
-							++xDevice;
 						}
 					}
 
@@ -685,4 +700,3 @@ LCleanup:
     if(bCleanupCOM)
         CoUninitialize();
 }
-#endif

@@ -40,16 +40,12 @@ namespace OIS
 		/** @copydoc Object::capture */
 		virtual void capture();
 
-		//! hanlde xinput
-		void captureXInput();
-
 		/** @copydoc Object::queryInterface */
 		virtual Interface* queryInterface(Interface::IType type);
 
 		/** @copydoc Object::_initialize */
 		virtual void _initialize();
 
-#ifdef OIS_WIN32_XINPUT_SUPPORT
 		/**
 		@remarks
 			Enum each PNP device using WMI and check each device ID to see if it contains 
@@ -57,7 +53,6 @@ namespace OIS
 			Unfortunately this information can not be found by just using DirectInput 
 		*/
 		static void CheckXInputDevices(JoyStickInfoList &joys);
-#endif
 
 	protected:
 		//! Enumerates all things

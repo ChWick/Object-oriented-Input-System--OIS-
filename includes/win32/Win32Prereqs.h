@@ -23,20 +23,16 @@ restrictions:
 #ifndef _WIN32_INPUTSYSTEM_PREREQS_H
 #define _WIN32_INPUTSYSTEM_PREREQS_H
 
-#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
 #define DIRECTINPUT_VERSION 0x0800
 #include <windows.h>
 #include <dinput.h>
-
-#ifdef OIS_WIN32_XINPUT_SUPPORT
-#	include <XInput.h>
-#endif
+#include <XInput.h>
 
 //Max number of elements to collect from buffered DirectInput
 #define KEYBOARD_DX_BUFFERSIZE 17
-#define MOUSE_DX_BUFFERSIZE 128
-#define JOYSTICK_DX_BUFFERSIZE 129
+#define MOUSE_DX_BUFFERSIZE 64
+#define JOYSTICK_DX_BUFFERSIZE 124
 
 //MinGW defines
 #if defined(OIS_MINGW_COMPILER)

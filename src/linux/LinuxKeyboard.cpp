@@ -28,11 +28,12 @@ restrictions:
 #include <X11/keysym.h>
 #include <X11/Xutil.h>
 #include <cstring>
+#include <unistd.h>
 
 using namespace OIS;
 #include <iostream>
 //-------------------------------------------------------------------//
-LinuxKeyboard::LinuxKeyboard(InputManager* creator, bool buffered, bool grab)
+LinuxKeyboard::LinuxKeyboard(InputManager* creator, bool buffered, bool grab, bool useXRepeat)
 	: Keyboard(creator->inputSystemName(), buffered, 0, creator)
 {
 	setlocale(LC_CTYPE, ""); //Set the locale to (hopefully) the users LANG UTF-8 Env var
@@ -42,6 +43,9 @@ LinuxKeyboard::LinuxKeyboard(InputManager* creator, bool buffered, bool grab)
 
 	grabKeyboard = grab;
 	keyFocusLost = false;
+
+	xAutoRepeat = useXRepeat;
+	oldXAutoRepeat = false;
 
 	//X Key Map to KeyCode
 	keyConversion.insert(XtoOIS_KeyMap::value_type(XK_1, KC_1));
@@ -209,6 +213,20 @@ void LinuxKeyboard::_initialize()
 		XGrabKeyboard(display,window,True,GrabModeAsync,GrabModeAsync,CurrentTime);
 
 	keyFocusLost = false;
+
+	if( xAutoRepeat == false )
+	{
+		//We do not want to blindly turn on autorepeat later when quiting if
+		//it was not on to begin with.. So, let us check and see first
+		XKeyboardState old;
+		XGetKeyboardControl( display, &old );
+		oldXAutoRepeat = false;
+
+		if( old.global_auto_repeat == AutoRepeatModeOn )
+			oldXAutoRepeat = true;
+
+		XAutoRepeatOff( display );
+	}
 }
 
 //-------------------------------------------------------------------//
@@ -216,6 +234,9 @@ LinuxKeyboard::~LinuxKeyboard()
 {
 	if( display )
 	{
+		if( oldXAutoRepeat )
+			XAutoRepeatOn(display);
+
 		if( grabKeyboard )
 			XUngrabKeyboard(display, CurrentTime);
 
@@ -282,13 +303,14 @@ void LinuxKeyboard::capture()
 	LinuxInputManager* linMan = static_cast<LinuxInputManager*>(mCreator);
 
 	while( XPending(display) > 0 )
-	{
+	{
 		XNextEvent(display, &event);
-		if(KeyPress == event.type)
+
+		if( KeyPress == event.type )
 		{
 			unsigned int character = 0;
 
-			if(mTextMode != Off)
+			if( mTextMode != Off )
 			{
 				unsigned char buffer[6] = {0,0,0,0,0,0};
 				XLookupString(&event.xkey, (char*)buffer, 6, &key, 0);
@@ -313,17 +335,16 @@ void LinuxKeyboard::capture()
 			//Check for Alt-Tab
 			if( event.xkey.state & Mod1Mask && key == XK_Tab )
 				linMan->_setGrabState(false);
-		}
-		else if(KeyRelease == event.type)
+		}
+		else if( KeyRelease == event.type )
 		{
-			if(!_isKeyRepeat(event))
-			{
-				//Mask out the modifier states X sets.. or we will get improper values
-				event.xkey.state &= ~ShiftMask;
-				event.xkey.state &= ~LockMask;
+			//Mask out the modifier states X sets.. or we will get improper values
+			event.xkey.state &= ~ShiftMask;
+			event.xkey.state &= ~LockMask;
 
-				XLookupString(&event.xkey,NULL,0,&key,NULL);
-				_injectKeyUp(key);			}
+			//Else, it is a valid key release
+			XLookupString(&event.xkey,NULL,0,&key,NULL);
+			_injectKeyUp(key);
 		}
 	}
 

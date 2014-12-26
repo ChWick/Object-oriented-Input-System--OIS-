@@ -24,14 +24,21 @@ restrictions:
 #include "OISException.h"
 #include "OISFactoryCreator.h"
 #include "OISObject.h"
+#include "OISSettings.h"
 #include <sstream>
 #include <algorithm>
 
 //Bring in correct Header / InputManager for current build platform
 #if defined OIS_SDL_PLATFORM
 #  include "SDL/SDLInputManager.h"
+#elif defined OIS_WIN32_NATIVE
+#  include "win32native/Win32NativeInputManager.h"
 #elif defined OIS_WIN32_PLATFORM
 #  include "win32/Win32InputManager.h"
+#elif defined OIS_ANDROID_PLATFORM
+#  include "android/AndroidInputManager.h"
+#elif defined OIS_NACL_PLATFORM
+#  include "nacl/NaClInputManager.h"
 #elif defined OIS_LINUX_PLATFORM
 #  include "linux/LinuxInputManager.h"
 #elif defined OIS_APPLE_PLATFORM
@@ -49,6 +56,8 @@ restrictions:
 #if defined OIS_WIN32_WIIMOTE_SUPPORT
 #  include "win32/extras/WiiMote/OISWiiMoteFactoryCreator.h"
 #endif
+
+#include "OISLog.h"
 
 
 using namespace OIS;
@@ -106,10 +115,16 @@ InputManager* InputManager::createInputSystem( ParamList &paramList )
 
 #if defined OIS_SDL_PLATFORM
 	im = new SDLInputManager();
+#elif defined OIS_WIN32_NATIVE
+	im = new Win32NativeInputManager();
 #elif defined OIS_WIN32_PLATFORM
 	im = new Win32InputManager();
 #elif defined OIS_XBOX_PLATFORM
 	im = new XBoxInputManager();
+#elif defined OIS_ANDROID_PLATFORM
+	im = new AndroidInputManager();
+#elif defined OIS_NACL_PLATFORM
+	im = new NaClInputManager();
 #elif defined OIS_LINUX_PLATFORM
 	im = new LinuxInputManager();
 #elif defined OIS_APPLE_PLATFORM
@@ -201,7 +216,9 @@ Object* InputManager::createInputObject( Type iType, bool bufferMode, const std:
 	}
 
 	if(!obj)
+	{
 		OIS_EXCEPT(E_InputDeviceNonExistant, "No devices match requested type.");
+	}
 
 	try
 	{	//Intialize device
